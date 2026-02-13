@@ -15,7 +15,7 @@ window.FamilyApp = (function(){
 
   let googleAccessToken = null;
 
-  // FIXED: Added 'function' keyword and fixed the scope
+  // Helper functions - Fixed Syntax
   function hex(buffer) { 
     return [...new Uint8Array(buffer)].map(b => b.toString(16).padStart(2,'0')).join(''); 
   }
