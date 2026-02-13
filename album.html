@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Album — Bear Family</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="container section">
+    <a href="gallery.html">← Back to Albums</a>
+    <h1 id="albumTitle">Album</h1>
+    <p id="albumDesc" class="muted"></p>
+    <div id="photosGrid" class="grid grid--photos"></div>
+  </main>
+  <script src="app.js"></script>
+  <script>
+    console.log('📸 Album page loaded - no password checks');
+    
+    (async function(){
+      const url = new URL(location.href);
+      const id = url.searchParams.get('id');
+      const token = url.searchParams.get('t');
+      const album = FamilyApp.getAlbumById(id);
+      
+      if (!album) { 
+        location.href = 'index.html'; 
+        return; 
+      }
+      
+      if (album.token && token !== album.token) {
+        location.href = 'index.html'; 
+        return;
+      }
+      
+      // Simply render the album - no password check
+      FamilyApp.renderAlbum(album, 'albumTitle', 'albumDesc', 'photosGrid');
+    }());
+  </script>
+</body>
+</html>

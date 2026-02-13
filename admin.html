@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin — Bear Family</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://apis.google.com/js/api.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <nav class="nav container">
+      <a class='brand' href='gallery.html'>Bear Family</a>
+      <ul class="nav-menu">
+        <li><a href="gallery.html">← Back to Gallery</a></li>
+        <li><button id="logoutBtn" class="btn btn--small btn--ghost">Logout</button></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="container section">
+    <h1>Admin Panel</h1>
+    
+    <section class="admin-section" style="border: 2px dashed var(--brand); padding: 1.5rem; border-radius: var(--radius); margin-bottom: 2rem;">
+      <h2>☁️ Cloud Sync</h2>
+      <p class="muted">Connect to Google Drive to enable cloud uploads for your photos.</p>
+      <div style="display: flex; align-items: center; gap: 1rem;">
+        <button id="authBtn" class="btn btn--small">🔐 Connect Google Drive</button>
+        <span id="authStatus" style="font-weight: bold; color: #ff8c8c;">Disconnected</span>
+      </div>
+    </section>
+
+    <section class="admin-section" style="margin-bottom: 2rem;">
+      <h2>📸 Upload Photos</h2>
+      <div class="form">
+        <label>Select Album</label>
+        <select id="uploadAlbumSelect" class="form-control">
+          <option value="">-- Choose an album --</option>
+        </select>
+      </div>
+      
+      <div id="uploaderContainer" style="margin-top:1rem; border: 1px solid #ddd; padding: 1rem; border-radius: 8px;">
+        <p class="muted">Select an album above to start uploading.</p>
+      </div>
+    </section>
+
+    <section class="admin-section" style="margin-bottom: 2rem; padding-top: 2rem; border-top: 1px solid #eee;">
+      <h2>➕ Create New Album</h2>
+      <form id="albumForm" class="form">
+        <div class="form-group">
+          <label>Album Title</label>
+          <input type="text" id="albumTitle" class="form-control" placeholder="Summer Vacation 2025" required />
+        </div>
+        
+        <div class="form-group" style="margin-top:1rem">
+          <label>Album ID (No spaces, e.g., summer-2025)</label>
+          <input type="text" id="albumId" class="form-control" placeholder="summer-2025" required />
+        </div>
+        
+        <button type="submit" class="btn" style="margin-top:1.5rem">Create Album</button>
+      </form>
+    </section>
+
+  </main>
+
+  <script src="app.js"></script>
+  
+  <script>
+    (async function(){
+      // Security Check: Redirect if not logged in
+      await FamilyApp.requireAuth();
+
+      // --- LOGOUT LOGIC ---
+      document.getElementById('logoutBtn').addEventListener('click', () => {
+        FamilyApp.logout();
+        window.location.href = 'index.html';
+      });
+
+      // --- GOOGLE DRIVE AUTH ---
+      document.getElementById('authBtn').addEventListener('click', () => {
+        FamilyApp.drive.initAuth('authStatus');
+      });
+
+      // --- POPULATE ALBUM DROPDOWN ---
+      const select = document.getElementById('uploadAlbumSelect');
+      const uploaderContainer = document.getElementById('uploaderContainer');
+
+      function refreshDropdown() {
+        const albums = FamilyApp.local.getAlbums();
+        select.innerHTML = '<option value="">-- Choose an album --</option>';
+        albums.forEach(a => {
+          const opt = document.createElement('option');
+          opt.value = a.id;
+          opt.textContent = a.title;
+          select.appendChild(opt);
+        });
+      }
+      refreshDropdown();
+
+      // --- ALBUM CREATION LOGIC ---
+      const albumForm = document.getElementById('albumForm');
+      albumForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const title = document.getElementById('albumTitle').value;
+        const id = document.getElementById('albumId').value.toLowerCase().replace(/\s+/g, '-');
+        
+        const success = FamilyApp.local.addAlbum({ id, title, photos: [] });
+        if (success) {
+          alert('✓ Album "' + title + '" Created!');
+          albumForm.reset();
+          refreshDropdown();
+        } else {
+          alert('Error: This Album ID already exists.');
+        }
+      });
+
+      // --- UPLOAD INTERFACE LOGIC ---
+      select.addEventListener('change', (e) => {
+        const albumId = e.target.value;
+        if (!albumId) {
+          uploaderContainer.innerHTML = '<p class="muted">Select an album above to start uploading.</p>';
+          return;
+        }
+
+        uploaderContainer.innerHTML = `
+          <h4>Uploading to: ${select.options[select.selectedIndex].text}</h4>
+          <input type="file" id="fileInput" accept="image/*" class="form-control" style="margin-bottom:1rem">
+          <input type="text" id="photoTitle" placeholder="Photo Title (Optional)" class="form-control" style="margin-bottom:1rem">
+          <button id="startUploadBtn" class="btn btn--small">🚀 Start Cloud Upload</button>
+          <div id="uploadProgress" style="margin-top:1rem; font-weight:bold"></div>
+        `;
+
+        document.getElementById('startUploadBtn').addEventListener('click', async () => {
+          const file = document.getElementById('fileInput').files[0];
+          const photoTitle = document.getElementById('photoTitle').value || file.name;
+          const status = document.getElementById('uploadProgress');
+
+          if (!file) return alert("Please select a photo first!");
+
+          try {
+            status.textContent = "⏳ Uploading to Google Drive...";
+            status.style.color = "orange";
+
+            // 1. Upload to Google Drive
+            const cloudData = await FamilyApp.drive.uploadFile(file);
+
+            // 2. Save the Drive links to our local album
+            FamilyApp.local.addPhoto({
+              albumId: albumId,
+              title: photoTitle,
+              date: new Date().toISOString().split('T')[0],
+              viewUrl: cloudData.viewUrl,
+              downloadUrl: cloudData.downloadUrl
+            });
+
+            status.textContent = "✅ Upload Success!";
+            status.style.color = "green";
+            document.getElementById('fileInput').value = "";
+          } catch (err) {
+            status.textContent = "❌ Error: " + err.message;
+            status.style.color = "red";
+          }
+        });
+      });
+
+    }());
+  </script>
+</body>
+</html>

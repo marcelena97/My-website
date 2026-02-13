@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bear Family — Sign in</title>
+  <meta name="description" content="Private family website — photos, albums, timeline." />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="auth">
+  <main class="auth-card">
+    <img src="assets/logo.svg" alt="Bear Family logo" class="logo"/>
+    <h1>Welcome, Bear Family 👋</h1>
+    <p class="muted">Enter the family password to continue.</p>
+    
+    <form id="loginForm" class="form" autocomplete="off">
+      <label for="password">Family password</label>
+      <input 
+        id="password" 
+        name="password" 
+        type="password" 
+        required 
+        placeholder="••••••••"
+        autocomplete="current-password"
+      />
+      <button class="btn" type="submit">Enter</button>
+      <p id="loginStatus" class="error" role="alert" aria-live="polite"></p>
+    </form>
+    
+    <p class="kicker muted" style="margin-top:1rem">Tip: we will enable host-level password later for stronger security.</p>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    (function(){
+      const form = document.getElementById('loginForm');
+      const status = document.getElementById('loginStatus');
+      const passwordInput = document.getElementById('password');
+      
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        status.textContent = '';
+        
+        // Add loading state
+        const btn = form.querySelector('button');
+        const originalText = btn.textContent;
+        btn.textContent = 'Checking...';
+        btn.disabled = true;
+        
+        const ok = await window.FamilyApp.login(passwordInput.value);
+        
+        if (ok) {
+          status.style.color = 'var(--accent)';
+          status.textContent = '✓ Success! Redirecting...';
+          setTimeout(() => {
+            location.href = 'gallery.html';
+          }, 500);
+        } else {
+          status.style.color = '#ff8c8c';
+          status.textContent = '✗ Incorrect password. Try again.';
+          btn.textContent = originalText;
+          btn.disabled = false;
+          passwordInput.value = '';
+          passwordInput.focus();
+        }
+      });
+      
+      // Auto-focus password field
+      passwordInput.focus();
+    }());
+  </script>
+</body>
+</html>
