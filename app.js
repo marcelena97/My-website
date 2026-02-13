@@ -1,4 +1,4 @@
-/* app.js – Bear Family Gallery - WORKAROUND for 403 on folders query */
+/* app.js – Bear Family Gallery - Google Drive Photo Storage */
 
 window.FamilyApp = (function(){
   // ===== CONFIGURATION =====
@@ -45,14 +45,14 @@ window.FamilyApp = (function(){
       }
     },
 
-    // ===== WORKAROUND: List all items and filter for folders =====
+    // ===== GOOGLE DRIVE - FETCH ALL ITEMS AND FILTER FOR FOLDERS =====
     async fetchAlbumsFromDrive() {
-      // Query for ALL items in the folder (not specifying mimeType)
+      // Query for ALL items in the folder
       const q = `'${DRIVE_CONFIG.folderId}' in parents and trashed = false`;
       const url = `https://www.googleapis.com/drive/v3/files?key=${DRIVE_CONFIG.apiKey}&q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,createdTime)&pageSize=1000`;
 
       try {
-        console.log('🔍 Fetching all items from Google Drive...');
+        console.log('🔍 Fetching items from Google Drive...');
         const res = await fetch(url);
 
         if (!res.ok) {
@@ -60,11 +60,10 @@ window.FamilyApp = (function(){
           console.error('❌ Google Drive API error:', errorData);
           
           if (res.status === 403) {
-            console.error('⚠️ 403 Error - Your folder must be publicly shared!');
-            console.error('🔧 FIX: Go to folder settings and set to "Anyone with the link can view"');
+            throw new Error('FOLDER_NOT_SHARED: Your Google Drive folder must be publicly shared. Right-click the folder → Share → "Anyone with the link can view"');
           }
           
-          return [];
+          throw new Error(`API Error: ${errorData.error?.message || 'Unknown error'}`);
         }
 
         const data = await res.json();
@@ -75,15 +74,15 @@ window.FamilyApp = (function(){
           return [];
         }
 
-        // Filter for folders only (client-side)
+        // Filter for folders only (subfolders = albums)
         const folders = data.files.filter(file => 
           file.mimeType === 'application/vnd.google-apps.folder'
         );
 
-        console.log(`📁 Found ${folders.length} folders out of ${data.files.length} total items`);
+        console.log(`📁 Found ${folders.length} folders (albums)`);
 
         if (folders.length === 0) {
-          console.warn('⚠️ No subfolders found. Create folders to organize photos into albums.');
+          console.warn('⚠️ No subfolders found. Create folders like "Italy", "Summer" in your Drive folder.');
           return [];
         }
 
@@ -96,7 +95,6 @@ window.FamilyApp = (function(){
           albums.push({
             id: folder.id,
             title: folder.name,
-            folderId: folder.id,
             coverUrl: thumbnail,
             createdTime: folder.createdTime
           });
@@ -107,7 +105,7 @@ window.FamilyApp = (function(){
 
       } catch (err) {
         console.error('❌ Fetch albums failed:', err);
-        return [];
+        throw err;
       }
     },
 
@@ -134,7 +132,7 @@ window.FamilyApp = (function(){
     // ===== FETCH PHOTOS FROM SPECIFIC FOLDER =====
     async fetchPhotosFromFolder(folderId) {
       const q = `'${folderId}' in parents and mimeType contains 'image/' and trashed = false`;
-      const url = `https://www.googleapis.com/drive/v3/files?key=${DRIVE_CONFIG.apiKey}&q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,createdTime,imageMediaMetadata)&pageSize=1000&orderBy=createdTime`;
+      const url = `https://www.googleapis.com/drive/v3/files?key=${DRIVE_CONFIG.apiKey}&q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,createdTime,imageMediaMetadata)&pageSize=1000&orderBy=name`;
 
       try {
         console.log(`🔍 Fetching photos from folder: ${folderId}`);
@@ -143,6 +141,11 @@ window.FamilyApp = (function(){
         if (!res.ok) {
           const errorData = await res.json();
           console.error('❌ Google Drive API error:', errorData);
+          
+          if (res.status === 403) {
+            throw new Error('FOLDER_NOT_SHARED: This folder must also be publicly shared');
+          }
+          
           return [];
         }
 
@@ -163,7 +166,6 @@ window.FamilyApp = (function(){
             thumbUrl: `https://drive.google.com/thumbnail?id=${file.id}&sz=w400`,
             downloadUrl: `https://drive.google.com/uc?export=download&id=${file.id}`,
             createdTime: file.createdTime,
-            // Extract date from EXIF if available
             date: file.imageMediaMetadata?.time || file.createdTime?.split('T')[0] || ''
           }));
 
@@ -172,7 +174,7 @@ window.FamilyApp = (function(){
 
       } catch (err) {
         console.error('❌ Fetch photos failed:', err);
-        return [];
+        throw err;
       }
     },
 
@@ -181,35 +183,39 @@ window.FamilyApp = (function(){
       document.getElementById(titleId).textContent = folderName;
       
       const grid = document.getElementById(gridId);
-      grid.innerHTML = '<p class="muted" style="grid-column: 1/-1; text-align:center;">Loading photos...</p>';
+      grid.innerHTML = '<p class="muted" style="grid-column: 1/-1; text-align:center;">⏳ Loading photos...</p>';
 
-      const photos = await this.fetchPhotosFromFolder(folderId);
+      try {
+        const photos = await this.fetchPhotosFromFolder(folderId);
 
-      grid.innerHTML = '';
+        grid.innerHTML = '';
 
-      if (photos.length === 0) {
-        grid.innerHTML = '<p class="muted" style="grid-column: 1/-1; text-align:center;">No photos in this album yet.</p>';
-        return;
-      }
+        if (photos.length === 0) {
+          grid.innerHTML = '<p class="muted" style="grid-column: 1/-1; text-align:center;">No photos in this album yet. Add images to this folder in Google Drive.</p>';
+          return;
+        }
 
-      photos.forEach(photo => {
-        const figure = document.createElement('figure');
-        figure.className = 'photo-card';
-        figure.innerHTML = `
-          <img src="${photo.thumbUrl}" alt="${photo.title}" loading="lazy">
-          <figcaption>
-            <strong>${photo.title}</strong>
-            ${photo.date ? `<br><span class="muted">${photo.date}</span>` : ''}
-          </figcaption>
-        `;
-        
-        // Click to view full size
-        figure.addEventListener('click', () => {
-          this.openPhotoModal(photos, photos.indexOf(photo));
+        photos.forEach(photo => {
+          const figure = document.createElement('figure');
+          figure.className = 'photo-card';
+          figure.innerHTML = `
+            <img src="${photo.thumbUrl}" alt="${photo.title}" loading="lazy">
+            <figcaption>
+              <strong>${photo.title}</strong>
+              ${photo.date ? `<br><span class="muted">${photo.date}</span>` : ''}
+            </figcaption>
+          `;
+          
+          // Click to view full size
+          figure.addEventListener('click', () => {
+            this.openPhotoModal(photos, photos.indexOf(photo));
+          });
+          
+          grid.appendChild(figure);
         });
-        
-        grid.appendChild(figure);
-      });
+      } catch (error) {
+        grid.innerHTML = `<p style="color:#ff8c8c; grid-column: 1/-1; text-align:center;">❌ Error: ${error.message}</p>`;
+      }
     },
 
     // ===== PHOTO MODAL / LIGHTBOX =====

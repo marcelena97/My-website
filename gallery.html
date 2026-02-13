@@ -18,10 +18,10 @@
 
   <main class="container section">
     <h1>📸 Photo Albums</h1>
-    <p class="muted" style="margin-bottom: 2rem;">Each folder in your Google Drive is an album</p>
+    <p class="muted" style="margin-bottom: 2rem;">Your albums from Google Drive folders</p>
     
     <div id="loadingMessage" style="text-align:center; padding:3rem;">
-      <p class="muted">Loading albums from Google Drive...</p>
+      <p class="muted">⏳ Loading albums from Google Drive...</p>
     </div>
 
     <div id="albumsGrid" class="grid"></div>
@@ -49,10 +49,31 @@
 
         if (albums.length === 0) {
           albumsGrid.innerHTML = `
-            <div style="grid-column: 1/-1; text-align:center; padding:3rem;">
-              <h2>No Albums Found</h2>
-              <p class="muted">Create folders in your Google Drive to organize photos into albums.</p>
-              <p class="muted">Folder ID: 1skx93vYn0OE9u-64snbnds8DaOHQGu3G</p>
+            <div style="grid-column: 1/-1; text-align:center; padding:3rem; max-width:600px; margin:0 auto;">
+              <h2>📁 No Albums Found</h2>
+              <p class="muted" style="margin:1rem 0;">Create folders in your Google Drive to organize photos into albums.</p>
+              
+              <div style="background:#1a1d2e; padding:1.5rem; border-radius:8px; margin-top:2rem; text-align:left;">
+                <strong style="color:#4f7cff;">Expected Structure:</strong>
+                <pre style="color:#e9eef6; margin-top:1rem; line-height:1.8;">
+📁 Bear Family Photos
+   ├── 📁 Italy
+   │   ├── rome.jpg
+   │   └── venice.jpg
+   ├── 📁 Summer
+   │   └── beach.jpg
+   └── 📁 Christmas
+       └── tree.jpg</pre>
+              </div>
+
+              <p class="muted" style="margin-top:2rem;">
+                <strong>Your folder:</strong><br>
+                <a href="https://drive.google.com/drive/folders/1skx93vYn0OE9u-64snbnds8DaOHQGu3G" 
+                   target="_blank" 
+                   style="color:#4f7cff;">
+                  Open in Google Drive →
+                </a>
+              </p>
             </div>
           `;
           return;
@@ -88,10 +109,58 @@
         console.log(`✅ Displayed ${albums.length} albums`);
 
       } catch (error) {
-        loadingMessage.innerHTML = `
-          <p style="color:#ff8c8c;">❌ Error loading albums: ${error.message}</p>
-          <p class="muted">Check browser console for details</p>
-        `;
+        loadingMessage.style.display = 'none';
+        
+        // Check if it's the folder sharing error
+        if (error.message.includes('FOLDER_NOT_SHARED')) {
+          albumsGrid.innerHTML = `
+            <div style="grid-column: 1/-1; text-align:center; padding:3rem; max-width:700px; margin:0 auto;">
+              <h2 style="color:#ff8c8c;">🔒 Folder Not Shared</h2>
+              <p style="margin:1.5rem 0; font-size:1.1rem;">
+                Your Google Drive folder must be <strong>publicly shared</strong> to display photos.
+              </p>
+
+              <div style="background:#1a1d2e; padding:2rem; border-radius:12px; margin-top:2rem; text-align:left;">
+                <strong style="color:#4f7cff; font-size:1.1rem;">📋 How to Fix:</strong>
+                
+                <ol style="margin:1.5rem 0; line-height:2; color:#e9eef6;">
+                  <li>Open your folder: 
+                    <a href="https://drive.google.com/drive/folders/1skx93vYn0OE9u-64snbnds8DaOHQGu3G" 
+                       target="_blank" 
+                       style="color:#4f7cff;">
+                      Click here →
+                    </a>
+                  </li>
+                  <li>Right-click the folder → Click <strong>"Share"</strong></li>
+                  <li>Under "General access", click <strong>"Change"</strong></li>
+                  <li>Select: <strong>"Anyone with the link"</strong></li>
+                  <li>Set permission to: <strong>"Viewer"</strong></li>
+                  <li>Click <strong>"Done"</strong></li>
+                  <li><strong style="color:#25c2a0;">IMPORTANT:</strong> Do this for <strong>EACH subfolder</strong> too (Italy, Summer, etc.)</li>
+                </ol>
+
+                <div style="background:#0d0f16; padding:1rem; border-radius:8px; margin-top:1.5rem; border-left:3px solid #25c2a0;">
+                  <p style="margin:0; color:#25c2a0; font-weight:600;">✅ After sharing:</p>
+                  <p style="margin:0.5rem 0 0 0; color:#a9b0c0;">Wait 30 seconds, then refresh this page.</p>
+                </div>
+              </div>
+
+              <button class="btn" onclick="location.reload()" style="margin-top:2rem;">
+                🔄 Refresh Page
+              </button>
+            </div>
+          `;
+        } else {
+          // Other errors
+          albumsGrid.innerHTML = `
+            <div style="grid-column: 1/-1; text-align:center; padding:3rem;">
+              <h2 style="color:#ff8c8c;">❌ Error Loading Albums</h2>
+              <p class="muted">${error.message}</p>
+              <p class="muted" style="margin-top:1rem;">Check browser console (F12) for details</p>
+            </div>
+          `;
+        }
+        
         console.error('Error loading albums:', error);
       }
     }());
