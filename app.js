@@ -1,4 +1,4 @@
-/* app.js – Bear Family Gallery - Dynamic Albums from Google Drive */
+/* app.js – Bear Family Gallery - WORKAROUND for 403 on folders query */
 
 window.FamilyApp = (function(){
   // ===== CONFIGURATION =====
@@ -45,33 +45,51 @@ window.FamilyApp = (function(){
       }
     },
 
-    // ===== GOOGLE DRIVE - FETCH FOLDERS (Albums) =====
+    // ===== WORKAROUND: List all items and filter for folders =====
     async fetchAlbumsFromDrive() {
-      // Query for folders (subfolders) in the main folder
-      const q = `'${DRIVE_CONFIG.folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-      const url = `https://www.googleapis.com/drive/v3/files?key=${DRIVE_CONFIG.apiKey}&q=${encodeURIComponent(q)}&fields=files(id,name,createdTime)&orderBy=name`;
+      // Query for ALL items in the folder (not specifying mimeType)
+      const q = `'${DRIVE_CONFIG.folderId}' in parents and trashed = false`;
+      const url = `https://www.googleapis.com/drive/v3/files?key=${DRIVE_CONFIG.apiKey}&q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,createdTime)&pageSize=1000`;
 
       try {
-        console.log('🔍 Fetching albums (folders) from Google Drive...');
+        console.log('🔍 Fetching all items from Google Drive...');
         const res = await fetch(url);
 
         if (!res.ok) {
           const errorData = await res.json();
           console.error('❌ Google Drive API error:', errorData);
+          
+          if (res.status === 403) {
+            console.error('⚠️ 403 Error - Your folder must be publicly shared!');
+            console.error('🔧 FIX: Go to folder settings and set to "Anyone with the link can view"');
+          }
+          
           return [];
         }
 
         const data = await res.json();
-        console.log(`✅ Found ${data.files?.length || 0} folders (albums)`);
+        console.log(`✅ Found ${data.files?.length || 0} total items`);
 
         if (!data.files || data.files.length === 0) {
-          console.warn('⚠️ No folders found in the main directory');
+          console.warn('⚠️ No items found in folder');
+          return [];
+        }
+
+        // Filter for folders only (client-side)
+        const folders = data.files.filter(file => 
+          file.mimeType === 'application/vnd.google-apps.folder'
+        );
+
+        console.log(`📁 Found ${folders.length} folders out of ${data.files.length} total items`);
+
+        if (folders.length === 0) {
+          console.warn('⚠️ No subfolders found. Create folders to organize photos into albums.');
           return [];
         }
 
         // Convert folders to album objects
         const albums = [];
-        for (const folder of data.files) {
+        for (const folder of folders) {
           // Get the first photo from this folder for the thumbnail
           const thumbnail = await this.getFirstPhotoFromFolder(folder.id);
           
