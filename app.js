@@ -1,20 +1,16 @@
-/* app.js – Bear Family Gallery */
+/* app.js – Bear Family Gallery - Dynamic Albums from Google Drive */
 
 window.FamilyApp = (function(){
   // ===== CONFIGURATION =====
   const DRIVE_CONFIG = {
-    clientId: '304034846208-q5cumi606scpegkg7rgkbocfuh4fvjbh.apps.googleusercontent.com',
     apiKey: 'AIzaSyDfmBG7mSKkrc8bvz3-rbrJ5IWQx4RmFHY',
-    folderId: '1skx93vYn0OE9u-64snbnds8DaOHQGu3G',
-    scopes: 'https://www.googleapis.com/auth/drive.readonly'
+    folderId: '1skx93vYn0OE9u-64snbnds8DaOHQGu3G'
   };
 
   const FAMILY = {
     name: 'Bear Family',
     passwordHash: '16b6f231a768a99ff5c35d0f36e8333b8592137316cd10f81ebe4d29e18f3f97'
   };
-
-  let googleAccessToken = null;
 
   // ===== HELPER FUNCTIONS =====
   function hex(buffer) {
@@ -49,42 +45,15 @@ window.FamilyApp = (function(){
       }
     },
 
-    // Google Drive Integration
-    async initDrive(callback) {
-      const client = google.accounts.oauth2.initTokenClient({
-        client_id: DRIVE_CONFIG.clientId,
-        scope: DRIVE_CONFIG.scopes,
-        callback: (response) => {
-          if (response.access_token) {
-            googleAccessToken = response.access_token;
-            console.log('✅ Google Drive connected successfully');
-            if (callback) callback();
-          } else {
-            console.error('❌ Failed to get access token');
-          }
-        },
-      });
-      client.requestAccessToken();
-    },
-
-    async fetchPhotosFromDrive() {
-      if (!googleAccessToken) {
-        console.error('❌ Not authenticated with Google Drive');
-        return [];
-      }
-
-      // Query for image files in the specified folder
-      const q = `'${DRIVE_CONFIG.folderId}' in parents and trashed = false and mimeType contains 'image/'`;
-      const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,createdTime)&pageSize=1000`;
+    // ===== GOOGLE DRIVE - FETCH FOLDERS (Albums) =====
+    async fetchAlbumsFromDrive() {
+      // Query for folders (subfolders) in the main folder
+      const q = `'${DRIVE_CONFIG.folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+      const url = `https://www.googleapis.com/drive/v3/files?key=${DRIVE_CONFIG.apiKey}&q=${encodeURIComponent(q)}&fields=files(id,name,createdTime)&orderBy=name`;
 
       try {
-        console.log('🔍 Fetching photos from Google Drive...');
-        const res = await fetch(url, {
-          headers: {
-            'Authorization': `Bearer ${googleAccessToken}`,
-            'Accept': 'application/json'
-          }
-        });
+        console.log('🔍 Fetching albums (folders) from Google Drive...');
+        const res = await fetch(url);
 
         if (!res.ok) {
           const errorData = await res.json();
@@ -93,157 +62,192 @@ window.FamilyApp = (function(){
         }
 
         const data = await res.json();
-        console.log(`✅ Found ${data.files?.length || 0} files in folder`);
+        console.log(`✅ Found ${data.files?.length || 0} folders (albums)`);
 
         if (!data.files || data.files.length === 0) {
-          console.warn('⚠️ No photos found. Check:');
-          console.warn('  1. Folder ID is correct');
-          console.warn('  2. Folder contains images');
-          console.warn('  3. You have permission to access the folder');
+          console.warn('⚠️ No folders found in the main directory');
           return [];
         }
 
-        // Filter for images only and format for display
+        // Convert folders to album objects
+        const albums = [];
+        for (const folder of data.files) {
+          // Get the first photo from this folder for the thumbnail
+          const thumbnail = await this.getFirstPhotoFromFolder(folder.id);
+          
+          albums.push({
+            id: folder.id,
+            title: folder.name,
+            folderId: folder.id,
+            coverUrl: thumbnail,
+            createdTime: folder.createdTime
+          });
+        }
+
+        console.log(`✅ Returning ${albums.length} albums`);
+        return albums;
+
+      } catch (err) {
+        console.error('❌ Fetch albums failed:', err);
+        return [];
+      }
+    },
+
+    // ===== GET FIRST PHOTO FROM FOLDER (for album thumbnail) =====
+    async getFirstPhotoFromFolder(folderId) {
+      const q = `'${folderId}' in parents and mimeType contains 'image/' and trashed = false`;
+      const url = `https://www.googleapis.com/drive/v3/files?key=${DRIVE_CONFIG.apiKey}&q=${encodeURIComponent(q)}&fields=files(id)&pageSize=1`;
+
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        
+        const data = await res.json();
+        if (data.files && data.files.length > 0) {
+          return `https://drive.google.com/thumbnail?id=${data.files[0].id}&sz=w400`;
+        }
+        return null;
+      } catch (err) {
+        console.error('Error fetching thumbnail:', err);
+        return null;
+      }
+    },
+
+    // ===== FETCH PHOTOS FROM SPECIFIC FOLDER =====
+    async fetchPhotosFromFolder(folderId) {
+      const q = `'${folderId}' in parents and mimeType contains 'image/' and trashed = false`;
+      const url = `https://www.googleapis.com/drive/v3/files?key=${DRIVE_CONFIG.apiKey}&q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,createdTime,imageMediaMetadata)&pageSize=1000&orderBy=createdTime`;
+
+      try {
+        console.log(`🔍 Fetching photos from folder: ${folderId}`);
+        const res = await fetch(url);
+
+        if (!res.ok) {
+          const errorData = await res.json();
+          console.error('❌ Google Drive API error:', errorData);
+          return [];
+        }
+
+        const data = await res.json();
+        console.log(`✅ Found ${data.files?.length || 0} photos in folder`);
+
+        if (!data.files || data.files.length === 0) {
+          return [];
+        }
+
+        // Format photos for display
         const photos = data.files
           .filter(file => file.mimeType && file.mimeType.startsWith('image/'))
           .map(file => ({
+            id: file.id,
             title: file.name,
             url: `https://drive.google.com/thumbnail?id=${file.id}&sz=w1200`,
-            id: file.id,
-            createdTime: file.createdTime
+            thumbUrl: `https://drive.google.com/thumbnail?id=${file.id}&sz=w400`,
+            downloadUrl: `https://drive.google.com/uc?export=download&id=${file.id}`,
+            createdTime: file.createdTime,
+            // Extract date from EXIF if available
+            date: file.imageMediaMetadata?.time || file.createdTime?.split('T')[0] || ''
           }));
 
         console.log(`✅ Returning ${photos.length} photos`);
         return photos;
 
       } catch (err) {
-        console.error('❌ Fetch request failed:', err);
+        console.error('❌ Fetch photos failed:', err);
         return [];
       }
     },
 
-    // Local storage helpers (for admin features)
-    local: {
-      getAlbums() {
-        const stored = localStorage.getItem('family_albums');
-        return stored ? JSON.parse(stored) : [];
-      },
-
-      addAlbum(album) {
-        const albums = this.getAlbums();
-        if (albums.find(a => a.id === album.id)) {
-          return false; // Album ID already exists
-        }
-        albums.push(album);
-        localStorage.setItem('family_albums', JSON.stringify(albums));
-        return true;
-      },
-
-      addPhoto(photoData) {
-        const albums = this.getAlbums();
-        const album = albums.find(a => a.id === photoData.albumId);
-        if (!album) return false;
-
-        album.photos = album.photos || [];
-        album.photos.push({
-          title: photoData.title,
-          date: photoData.date,
-          viewUrl: photoData.viewUrl,
-          downloadUrl: photoData.downloadUrl,
-          description: photoData.description || ''
-        });
-
-        localStorage.setItem('family_albums', JSON.stringify(albums));
-        return true;
-      }
-    },
-
-    // Google Drive upload helper (for admin)
-    drive: {
-      async initAuth(statusElementId) {
-        const statusEl = document.getElementById(statusElementId);
-        
-        const client = google.accounts.oauth2.initTokenClient({
-          client_id: DRIVE_CONFIG.clientId,
-          scope: 'https://www.googleapis.com/auth/drive.file',
-          callback: (response) => {
-            if (response.access_token) {
-              googleAccessToken = response.access_token;
-              statusEl.textContent = 'Connected ✅';
-              statusEl.style.color = '#25c2a0';
-            }
-          },
-        });
-        client.requestAccessToken();
-      },
-
-      async uploadFile(file) {
-        if (!googleAccessToken) {
-          throw new Error('Please connect to Google Drive first');
-        }
-
-        const metadata = {
-          name: file.name,
-          parents: [DRIVE_CONFIG.folderId]
-        };
-
-        const form = new FormData();
-        form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-        form.append('file', file);
-
-        const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${googleAccessToken}`
-          },
-          body: form
-        });
-
-        if (!response.ok) {
-          throw new Error('Upload failed: ' + response.statusText);
-        }
-
-        const result = await response.json();
-        return {
-          viewUrl: `https://drive.google.com/file/d/${result.id}/view`,
-          downloadUrl: `https://drive.google.com/uc?export=download&id=${result.id}`
-        };
-      }
-    },
-
-    // Utility to get album by ID
-    getAlbumById(id) {
-      const albums = this.local.getAlbums();
-      return albums.find(a => a.id === id);
-    },
-
-    // Render album page
-    renderAlbum(album, titleId, descId, gridId) {
-      document.getElementById(titleId).textContent = album.title;
-      if (album.description) {
-        document.getElementById(descId).textContent = album.description;
-      }
-
+    // ===== RENDER ALBUM WITH PHOTOS FROM DRIVE =====
+    async renderAlbumFromDrive(folderId, folderName, titleId, descId, gridId) {
+      document.getElementById(titleId).textContent = folderName;
+      
       const grid = document.getElementById(gridId);
+      grid.innerHTML = '<p class="muted" style="grid-column: 1/-1; text-align:center;">Loading photos...</p>';
+
+      const photos = await this.fetchPhotosFromFolder(folderId);
+
       grid.innerHTML = '';
 
-      if (!album.photos || album.photos.length === 0) {
-        grid.innerHTML = '<p class="muted">No photos in this album yet.</p>';
+      if (photos.length === 0) {
+        grid.innerHTML = '<p class="muted" style="grid-column: 1/-1; text-align:center;">No photos in this album yet.</p>';
         return;
       }
 
-      album.photos.forEach(photo => {
+      photos.forEach(photo => {
         const figure = document.createElement('figure');
+        figure.className = 'photo-card';
         figure.innerHTML = `
-          <img src="${photo.viewUrl || photo.downloadUrl}" alt="${photo.title}" loading="lazy">
+          <img src="${photo.thumbUrl}" alt="${photo.title}" loading="lazy">
           <figcaption>
             <strong>${photo.title}</strong>
             ${photo.date ? `<br><span class="muted">${photo.date}</span>` : ''}
-            ${photo.description ? `<br><span class="muted">${photo.description}</span>` : ''}
           </figcaption>
         `;
+        
+        // Click to view full size
+        figure.addEventListener('click', () => {
+          this.openPhotoModal(photos, photos.indexOf(photo));
+        });
+        
         grid.appendChild(figure);
       });
+    },
+
+    // ===== PHOTO MODAL / LIGHTBOX =====
+    openPhotoModal(photos, currentIndex) {
+      // Remove existing modal if any
+      const existing = document.querySelector('.photo-modal');
+      if (existing) existing.remove();
+
+      const modal = document.createElement('div');
+      modal.className = 'photo-modal';
+      
+      const renderPhoto = (index) => {
+        const photo = photos[index];
+        modal.innerHTML = `
+          <div class="photo-modal-content">
+            <button class="photo-modal-close" onclick="this.closest('.photo-modal').remove()">×</button>
+            ${photos.length > 1 && index > 0 ? '<button class="photo-nav photo-nav-prev">‹</button>' : ''}
+            ${photos.length > 1 && index < photos.length - 1 ? '<button class="photo-nav photo-nav-next">›</button>' : ''}
+            <img src="${photo.url}" alt="${photo.title}">
+            <div class="photo-modal-info">
+              <strong>${photo.title}</strong>
+              ${photo.date ? `<p>${photo.date}</p>` : ''}
+              <p class="muted">${index + 1} of ${photos.length}</p>
+            </div>
+          </div>
+        `;
+
+        // Navigation
+        const prevBtn = modal.querySelector('.photo-nav-prev');
+        const nextBtn = modal.querySelector('.photo-nav-next');
+        
+        if (prevBtn) {
+          prevBtn.onclick = () => renderPhoto(index - 1);
+        }
+        if (nextBtn) {
+          nextBtn.onclick = () => renderPhoto(index + 1);
+        }
+
+        // Keyboard navigation
+        const keyHandler = (e) => {
+          if (e.key === 'Escape') modal.remove();
+          if (e.key === 'ArrowLeft' && index > 0) renderPhoto(index - 1);
+          if (e.key === 'ArrowRight' && index < photos.length - 1) renderPhoto(index + 1);
+        };
+        document.removeEventListener('keydown', keyHandler);
+        document.addEventListener('keydown', keyHandler);
+      };
+
+      renderPhoto(currentIndex);
+      
+      // Click outside to close
+      modal.onclick = (e) => {
+        if (e.target === modal) modal.remove();
+      };
+
+      document.body.appendChild(modal);
     }
   };
 })();
